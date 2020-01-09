@@ -451,30 +451,40 @@ dhconfig() {
                 fi
                 gateway=${static_routes[$i+1]}
 
-                metric=''
-                for t in ${route_targets[@]}; do
-                    if [ ${t} = ${target} ]; then
-                        if [ -z "${metric}" ]; then
-                            metric=1
-                        else
-                            ((metric=metric+1))
-                        fi
-                    fi
-                done
-
-                if [ -n "${metric}" ]; then
-                    metric="metric ${metric}"
+                # special case 0.0.0.0 to allow static routing for link-local addresses
+                # (including IPv4 multicast) which will not have a next-hop (#769463, #787318)
+                if [ "${gateway}" = "0.0.0.0" ]; then
+                    valid_gateway=0
+                    scope='scope link'
+                else
+                    is_router_reachable ${gateway}
+                    valid_gateway=$?
+                    scope=''
                 fi
+                if [ ${valid_gateway} -eq 0 ]; then
+                    metric=''
+                    for t in ${route_targets[@]}; do
+                        if [ ${t} = ${target} ]; then
+                            if [ -z "${metric}" ]; then
+                                metric=1
+                            else
+                                ((metric=metric+1))
+                            fi
+                        fi
+                    done
 
-                if is_router_reachable ${gateway}; then
-                    ip -4 route replace ${target}/${prefix} proto static via ${gateway} dev ${interface} ${metric}
+                    if [ -n "${metric}" ]; then
+                        metric="metric ${metric}"
+                    fi
+
+                    ip -4 route replace ${target}/${prefix} proto static via ${gateway} dev ${interface} ${metric} ${scope}
 
                     if [ $? -ne 0 ]; then
-                        logmessage "failed to create static route: ${target}/${prefix} via ${gateway} dev ${interface} ${metric}"
+                            logmessage "failed to create static route: ${target}/${prefix} via ${gateway} dev ${interface} ${metric}"
                     else
-                        route_targets=(${route_targets[@]} ${target})
+                            route_targets=(${route_targets[@]} ${target})
                     fi
-                fi
+                 fi
             done
         fi
 

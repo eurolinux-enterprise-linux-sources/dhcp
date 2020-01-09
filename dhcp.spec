@@ -15,7 +15,7 @@
 Summary:  Dynamic host configuration protocol software
 Name:     dhcp
 Version:  4.1.1
-Release:  53.%{patchver}%{?dist}.4
+Release:  60.%{patchver}%{?dist}
 # NEVER CHANGE THE EPOCH on this package.  The previous maintainer (prior to
 # dcantrell maintaining the package) made incorrect use of the epoch and
 # that's why it is at 12 now.  It should have never been used, but it was.
@@ -772,16 +772,24 @@ fi
 %attr(0644,root,root) %{_mandir}/man3/omapi.3.gz
 
 %changelog
-* Tue Apr 24 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-53.P1%{?dist}.4
-- Resolves: #1570897 - Fix comamnd execution in NM script (CVE-2018-1111)
+* Tue Apr 24 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-60.P1%{?dist}
+- Resolves: #1570894 - Fix command execution vulnerability (CVE-2018-1111)
 
-* Wed Feb 28 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-53.P1.3
-- Resolves: #1550085 - CVE-2018-5733 Avoid reference overflow
+* Wed Feb 28 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-59.P1
+- Resolves: #1550084 - CVE-2018-5733 Avoid reference overflow
 
-<* Wed Feb 28 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-53.P1.2
-- Resolves: #1550083 - CVE-2018-5732 Avoid options buffer overflow
+* Wed Feb 28 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-58.P1
+- Resolves: #1550082 - CVE-2018-5732 Avoid options buffer overflow
 
-* Mon Jul 31 2017 Jiri Popelka <jpopelka@redhat.com> - 12:4.1.1-53.P1.1
+* Mon Jan 08 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-57.P1
+- Resolves: #1527995 - Don't check if router is reachable for 0.0.0.0
+- Fix changelog year
+
+* Thu Dec 28 2017 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-55.P1
+- Resolves: #1527995 - allow static route with a 0.0.0.0 next-hop address
+- Related: #1527995 -  install link-local static routes with correct scope
+
+* Mon Jul 31 2017 Jiri Popelka <jpopelka@redhat.com> - 12:4.1.1-54.P1
 - Resolves: #1063217 - failover hangs with both potential-conflict
 
 * Tue Nov 08 2016 Pavel Šimerda <psimerda@redhat.com> - 12:4.1.1-53.P1
