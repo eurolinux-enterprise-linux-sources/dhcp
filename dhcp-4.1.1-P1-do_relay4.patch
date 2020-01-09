@@ -1,0 +1,16 @@
+diff -up dhcp-4.1.1-P1/relay/dhcrelay.c.do_relay4 dhcp-4.1.1-P1/relay/dhcrelay.c
+--- dhcp-4.1.1-P1/relay/dhcrelay.c.do_relay4	2012-10-08 10:44:42.000000000 +0200
++++ dhcp-4.1.1-P1/relay/dhcrelay.c	2012-10-08 10:47:01.992278503 +0200
+@@ -566,6 +566,12 @@ do_relay4(struct interface_info *ip, str
+ 		return;
+ 	}
+ 
++	if (ip->address_count < 1 || ip->addresses == NULL) {
++		log_info("Discarding packet received on %s interface that "
++			 "has no IPv4 address assigned.", ip->name);
++ 		return;
++ 	}
++
+ 	/* Find the interface that corresponds to the giaddr
+ 	   in the packet. */
+ 	if (packet->giaddr.s_addr) {

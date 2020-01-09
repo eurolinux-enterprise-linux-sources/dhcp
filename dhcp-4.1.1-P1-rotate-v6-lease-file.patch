@@ -1,0 +1,115 @@
+diff --git a/includes/dhcpd.h b/includes/dhcpd.h
+index a907c80..5f92cca 100644
+--- a/includes/dhcpd.h
++++ b/includes/dhcpd.h
+@@ -2634,6 +2634,7 @@ int write_billing_class PROTO ((struct class *));
+ void commit_leases_timeout PROTO ((void *));
+ void commit_leases_readerdry(void *);
+ int commit_leases PROTO ((void));
++int commit_leases_timed (void);
+ void db_startup PROTO ((int));
+ int new_lease_file PROTO ((void));
+ int group_writer (struct group_object *);
+diff --git a/server/db.c b/server/db.c
+index 6690bcf..8627adb 100644
+--- a/server/db.c
++++ b/server/db.c
+@@ -36,6 +36,8 @@
+ #include <ctype.h>
+ #include <errno.h>
+ 
++#define LEASE_REWRITE_PERIOD 3600
++
+ static isc_result_t write_binding_scope(FILE *db_file, struct binding *bnd,
+ 					char *prepend);
+ 
+@@ -989,7 +991,7 @@ int commit_leases ()
+ 	/* If we haven't rewritten the lease database in over an
+ 	   hour, rewrite it now.  (The length of time should probably
+ 	   be configurable. */
+-	if (count && cur_time - write_time > 3600) {
++	if (count && cur_time - write_time > LEASE_REWRITE_PERIOD) {
+ 		count = 0;
+ 		write_time = cur_time;
+ 		new_lease_file ();
+@@ -997,6 +999,21 @@ int commit_leases ()
+ 	return 1;
+ }
+ 
++/*
++ * rewrite the lease file about once an hour
++ * This is meant as a quick patch for ticket 24887.  It allows
++ * us to rotate the v6 lease file without adding too many fsync()
++ * calls.  In the future we should revisit this area and add
++ * something similar to the delayed ack code for v4.
++ */
++int commit_leases_timed()
++{
++	if ((count != 0) && (cur_time - write_time > LEASE_REWRITE_PERIOD)) {
++		return (commit_leases());
++	}
++	return (1);
++}
++
+ void db_startup (testp)
+ 	int testp;
+ {
+diff --git a/server/dhcpv6.c b/server/dhcpv6.c
+index d41bdab..4879cee 100644
+--- a/server/dhcpv6.c
++++ b/server/dhcpv6.c
+@@ -1250,6 +1250,10 @@ pick_v6_prefix(struct iasubopt **pref, int plen,
+ }
+ 
+ /*
++ *! \file server/dhcpv6.c
++ *
++ * \brief construct a reply containing information about a client's lease
++ *
+  * lease_to_client() is called from several messages to construct a
+  * reply that contains all that we know about the client's correct lease
+  * (or projected lease).
+@@ -1271,8 +1275,15 @@ pick_v6_prefix(struct iasubopt **pref, int plen,
+  * validate and echo back any contents that can be.  If the client-supplied
+  * data does not error out (on renew/rebind as above), but we did not send
+  * any addresses, attempt to allocate one.
++ *
++ * At the end of the this function we call commit_leases_timed() to
++ * fsync and rotate the file as necessary.  commit_leases_timed() will
++ * check that we have written at least one lease to the file and that
++ * some time has passed before doing any fsync or file rewrite so we
++ * don't bother tracking if we did a write_ia during this function.
+  */
+ /* TODO: look at client hints for lease times */
++
+ static void
+ lease_to_client(struct data_string *reply_ret,
+ 		struct packet *packet, 
+@@ -1604,6 +1615,9 @@ lease_to_client(struct data_string *reply_ret,
+ 	memcpy(reply_ret->buffer->data, reply.buf.data, reply.cursor);
+ 	reply_ret->data = reply_ret->buffer->data;
+ 
++	/* If appropriate commit and rotate the lease file */
++	(void) commit_leases_timed();
++
+       exit:
+ 	/* Cleanup. */
+ 	if (reply.shared != NULL)
+diff --git a/server/mdb6.c b/server/mdb6.c
+index 0837d7f..33a336f 100644
+--- a/server/mdb6.c
++++ b/server/mdb6.c
+@@ -1507,6 +1507,13 @@ lease_timeout_support(void *vpool) {
+ 	}
+ 
+ 	/*
++	 * If appropriate commit and rotate the lease file
++	 * As commit_leases_timed() checks to see if we've done any writes
++	 * we don't bother tracking if this function called write _ia
++	 */
++	(void) commit_leases_timed();
++
++	/*
+ 	 * Do some cleanup of our expired leases.
+ 	 */
+ 	cleanup_old_expired(pool);

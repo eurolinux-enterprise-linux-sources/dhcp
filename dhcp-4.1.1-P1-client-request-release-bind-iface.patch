@@ -1,0 +1,110 @@
+diff -up dhcp-4.1.1-P1/client/dhclient.c.bind-iface dhcp-4.1.1-P1/client/dhclient.c
+--- dhcp-4.1.1-P1/client/dhclient.c.bind-iface	2016-01-11 14:44:57.589413098 +0100
++++ dhcp-4.1.1-P1/client/dhclient.c	2016-01-11 14:59:45.528471131 +0100
+@@ -2589,14 +2589,36 @@ void send_request (cpp)
+ 	      ntohs (destination.sin_port), client -> xid);
+ 
+ 	if (destination.sin_addr.s_addr != INADDR_BROADCAST &&
+-	    fallback_interface)
++	    fallback_interface) {
++#if defined(SO_BINDTODEVICE)
++		if (setsockopt(fallback_interface -> wfdesc, SOL_SOCKET,
++			       SO_BINDTODEVICE, client->interface->name,
++			       sizeof(client->interface->name)) < 0) {
++			log_error("%s:%d: Failed to bind fallback interface"
++				  " to %s: %m", MDL, client->interface->name);
++		}
++#endif
+ 		result = send_packet (fallback_interface,
+ 				      (struct packet *)0,
+ 				      &client -> packet,
+ 				      client -> packet_length,
+ 				      from, &destination,
+ 				      (struct hardware *)0);
+-	else
++		if (result < 0) {
++			log_error("%s:%d: Failed to send %d byte long packet "
++				  "over %s interface.", MDL,
++				  client->packet_length,
++				  fallback_interface->name);
++		}
++#if defined(SO_BINDTODEVICE)
++		if (setsockopt(fallback_interface -> wfdesc, SOL_SOCKET,
++			       SO_BINDTODEVICE, NULL, 0) < 0) {
++			log_fatal("%s:%d: Failed to unbind fallback interface:"
++				  " %m", MDL);
++		}
++#endif
++	}
++	else {
+ 		/* Send out a packet. */
+ 		result = send_packet (client -> interface, (struct packet *)0,
+ 				      &client -> packet,
+@@ -2604,6 +2626,15 @@ void send_request (cpp)
+ 				      from, &destination,
+ 				      (struct hardware *)0);
+ 
++		if (result < 0) {
++			log_error("%s:%d: Failed to send %d byte long packet"
++				  " over %s interface.", MDL,
++				  client->packet_length,
++				  client->interface->name);
++		}
++
++	}
++
+ 	tv . tv_sec = cur_time + client -> interval;
+ 	tv . tv_usec = 0;
+ 	add_timeout (&tv, send_request, client, 0, 0);
+@@ -2664,20 +2695,49 @@ void send_release (cpp)
+ 	      inet_ntoa (destination.sin_addr),
+ 	      ntohs (destination.sin_port), client -> xid);
+ 
+-	if (fallback_interface)
++	if (fallback_interface) {
++#if defined(SO_BINDTODEVICE)
++		if (setsockopt(fallback_interface -> wfdesc, SOL_SOCKET,
++			       SO_BINDTODEVICE, client->interface->name,
++			       strlen(client->interface->name)) < 0) {
++			log_error("%s:%d: Failed to bind fallback interface"
++				  " to %s: %m", MDL, client->interface->name);
++		}
++#endif
+ 		result = send_packet (fallback_interface,
+ 				      (struct packet *)0,
+ 				      &client -> packet,
+ 				      client -> packet_length,
+ 				      from, &destination,
+ 				      (struct hardware *)0);
+-	else
++		if (result < 0) {
++			log_error("%s:%d: Failed to send %d byte long packet"
++				  " over %s interface.", MDL,
++				  client->packet_length,
++				  fallback_interface->name);
++		}
++#if defined(SO_BINDTODEVICE)
++		if (setsockopt(fallback_interface -> wfdesc, SOL_SOCKET,
++			       SO_BINDTODEVICE, NULL, 0) < 0) {
++			log_fatal("%s:%d: Failed to unbind fallback interface:"
++				  " %m", MDL);
++		}
++#endif
++        } else {
+ 		/* Send out a packet. */
+ 		result = send_packet (client -> interface, (struct packet *)0,
+ 				      &client -> packet,
+ 				      client -> packet_length,
+ 				      from, &destination,
+ 				      (struct hardware *)0);
++		if (result < 0) {
++			log_error ("%s:%d: Failed to send %d byte long packet"
++				   " over %s interface.", MDL,
++				   client->packet_length,
++				   client->interface->name);
++		}
++
++        }
+ }
+ 
+ void

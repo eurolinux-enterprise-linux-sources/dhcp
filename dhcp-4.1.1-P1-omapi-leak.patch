@@ -1,0 +1,89 @@
+diff -up dhcp-4.1.1-P1/common/parse.c.leak dhcp-4.1.1-P1/common/parse.c
+--- dhcp-4.1.1-P1/common/parse.c.leak	2013-07-02 16:18:03.375000026 +0200
++++ dhcp-4.1.1-P1/common/parse.c	2013-07-02 16:18:03.457000026 +0200
+@@ -5138,6 +5138,7 @@ int parse_option_token (rv, cfile, fmt, 
+ 	unsigned len;
+ 	struct iaddr addr;
+ 	int compress;
++	isc_boolean_t freeval = ISC_FALSE;
+ 	const char *f, *g;
+ 	struct enumeration_value *e;
+ 
+@@ -5221,6 +5222,7 @@ int parse_option_token (rv, cfile, fmt, 
+ 			return 0;
+ 		}
+ 		len = strlen (val);
++		freeval = ISC_TRUE;
+ 		goto make_string;
+ 
+ 	      case 't': /* Text string... */
+@@ -5237,6 +5239,10 @@ int parse_option_token (rv, cfile, fmt, 
+ 		if (!make_const_data (&t, (const unsigned char *)val,
+ 				      len, 1, 1, MDL))
+ 			log_fatal ("No memory for concatenation");
++		if (freeval == ISC_TRUE) {
++			dfree((char *)val, MDL);
++			freeval = ISC_FALSE;
++		}
+ 		break;
+ 		
+ 	      case 'N':
+diff -up dhcp-4.1.1-P1/omapip/protocol.c.leak dhcp-4.1.1-P1/omapip/protocol.c
+--- dhcp-4.1.1-P1/omapip/protocol.c.leak	2013-07-02 16:18:25.277000166 +0200
++++ dhcp-4.1.1-P1/omapip/protocol.c	2013-07-02 16:18:58.692022032 +0200
+@@ -926,12 +926,10 @@ isc_result_t omapi_protocol_destroy (oma
+ 		dfree (p -> default_auth, file, line);
+ 
+ 	while (p -> remote_auth_list) {
+-		omapi_remote_auth_t *r = p -> remote_auth_list -> next;
+-		p -> remote_auth_list = r;
+-		if (r) {
+-			omapi_object_dereference (&r -> a, file, line);
+-			dfree (r, file, line);
+-		}
++		omapi_remote_auth_t *r = p -> remote_auth_list;
++		p -> remote_auth_list =  p -> remote_auth_list -> next;
++		omapi_object_dereference (&r -> a, file, line);
++		dfree (r, file, line);
+ 	}
+ 	return ISC_R_SUCCESS;
+ }
+diff -up dhcp-4.1.1-P1/server/db.c.leak dhcp-4.1.1-P1/server/db.c
+--- dhcp-4.1.1-P1/server/db.c.leak	2013-07-02 16:18:03.297000026 +0200
++++ dhcp-4.1.1-P1/server/db.c	2013-07-02 16:18:03.458000026 +0200
+@@ -395,6 +395,7 @@ int write_host (host)
+ 			fputc (';', db_file);
+ 			if (errno)
+ 				++errors;
++			data_string_forget (&ip_addrs, MDL);
+ 		}
+ 
+ 		if (host -> named_group) {
+diff -up dhcp-4.1.1-P1/server/omapi.c.leak dhcp-4.1.1-P1/server/omapi.c
+--- dhcp-4.1.1-P1/server/omapi.c.leak	2009-07-25 00:04:53.000000000 +0200
++++ dhcp-4.1.1-P1/server/omapi.c	2013-07-02 16:18:03.459000026 +0200
+@@ -1181,8 +1181,6 @@ isc_result_t dhcp_host_destroy (omapi_ob
+ 		return ISC_R_INVALIDARG;
+ 	host = (struct host_decl *)h;
+ 
+-#if defined (DEBUG_MEMORY_LEAKAGE) || \
+-		defined (DEBUG_MEMORY_LEAKAGE_ON_EXIT)
+ 	if (host -> n_ipaddr)
+ 		host_dereference (&host -> n_ipaddr, file, line);
+ 	if (host -> n_dynamic)
+@@ -1200,7 +1198,6 @@ isc_result_t dhcp_host_destroy (omapi_ob
+ 		omapi_object_dereference ((omapi_object_t **)
+ 					  &host -> named_group, file, line);
+ 	data_string_forget (&host -> auth_key_id, file, line);
+-#endif
+ 
+ 	return ISC_R_SUCCESS;
+ }
+@@ -1286,6 +1283,7 @@ isc_result_t dhcp_host_stuff_values (oma
+ 						  ip_addrs.data, ip_addrs.len);
+ 		if (status != ISC_R_SUCCESS)
+ 			return status;
++		data_string_forget (&ip_addrs, MDL);
+ 	}
+ 
+ 	if (host -> client_identifier.len) {

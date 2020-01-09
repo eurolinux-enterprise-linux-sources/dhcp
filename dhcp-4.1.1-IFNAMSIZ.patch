@@ -1,0 +1,40 @@
+diff -up dhcp-4.1.1-P1/relay/dhcrelay.c.ifnamsiz dhcp-4.1.1-P1/relay/dhcrelay.c
+--- dhcp-4.1.1-P1/relay/dhcrelay.c.ifnamsiz	2014-05-29 13:44:30.000000000 +0200
++++ dhcp-4.1.1-P1/relay/dhcrelay.c	2014-05-29 13:49:43.646958445 +0200
+@@ -245,14 +245,19 @@ main(int argc, char **argv) {
+ 			local_family_set = 1;
+ 			local_family = AF_INET;
+ #endif
++			if (++i == argc) {
++				usage();
++			}
++			if (strlen(argv[i]) >= sizeof(tmp->name)) {
++				log_fatal("%s: interface name too long "
++					  "(is %ld)",
++					  argv[i], (long)strlen(argv[i]));
++			}
+ 			status = interface_allocate(&tmp, MDL);
+ 			if (status != ISC_R_SUCCESS)
+ 				log_fatal("%s: interface_allocate: %s",
+ 					  argv[i],
+ 					  isc_result_totext(status));
+-			if (++i == argc) {
+-				usage();
+-			}
+ 			strcpy(tmp->name, argv[i]);
+ 			interface_snorf(tmp, INTERFACE_REQUESTED);
+ 			interface_dereference(&tmp, MDL);
+diff -up dhcp-4.1.1-P1/server/dhcpd.c.ifnamsiz dhcp-4.1.1-P1/server/dhcpd.c
+--- dhcp-4.1.1-P1/server/dhcpd.c.ifnamsiz	2014-05-29 13:44:30.252444910 +0200
++++ dhcp-4.1.1-P1/server/dhcpd.c	2014-05-29 13:47:24.267950077 +0200
+@@ -397,6 +397,10 @@ main(int argc, char **argv) {
+ 		} else {
+ 			struct interface_info *tmp =
+ 				(struct interface_info *)0;
++			if (strlen(argv[i]) >= sizeof(tmp->name))
++				log_fatal("%s: interface name too long "
++					  "(is %ld)",
++					  argv[i], (long)strlen(argv[i]));
+ 			result = interface_allocate (&tmp, MDL);
+ 			if (result != ISC_R_SUCCESS)
+ 				log_fatal ("Insufficient memory to %s %s: %s",

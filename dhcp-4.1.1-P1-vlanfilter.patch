@@ -1,0 +1,16 @@
+diff -up dhcp-4.1.1-P1/common/lpf.c.vlanfilter dhcp-4.1.1-P1/common/lpf.c
+--- dhcp-4.1.1-P1/common/lpf.c.vlanfilter	2014-10-01 14:20:01.442379690 +0100
++++ dhcp-4.1.1-P1/common/lpf.c	2014-10-07 17:28:31.548592805 +0100
+@@ -519,6 +519,12 @@ ssize_t receive_packet (interface, buf, 
+ 		if (cmsg->cmsg_level == SOL_PACKET &&
+ 		    cmsg->cmsg_type == PACKET_AUXDATA) {
+ 			struct tpacket_auxdata *aux = (void *)CMSG_DATA(cmsg);
++			/* if listening on plain interface we can see vlan traffic as well.
++			   skip vlan traffic if tagged. If we are listening on vlan interfaces
++			   as well we will see the traffic again but without the tag
++			*/
++			if (aux->tp_vlan_tci & 0x0fff)
++			    return 0;
+ 			nocsum = aux->tp_status & TP_STATUS_CSUMNOTREADY;
+ 		}
+ 	}

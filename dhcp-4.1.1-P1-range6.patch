@@ -1,0 +1,41 @@
+diff -up dhcp-4.1.1-P1/server/confpars.c.range6 dhcp-4.1.1-P1/server/confpars.c
+--- dhcp-4.1.1-P1/server/confpars.c.range6	2013-01-23 15:11:50.305119178 +0100
++++ dhcp-4.1.1-P1/server/confpars.c	2013-01-23 15:11:50.359118449 +0100
+@@ -3776,6 +3776,19 @@ add_ipv6_pool_to_subnet(struct subnet *s
+ 	share->ipv6_pools[num_pools+1] = NULL;
+ }
+ 
++static void
++check_addr_in_subnet(struct subnet *subnet, struct iaddr *addr) {
++	char lowbuf [INET6_ADDRSTRLEN], netbuf [INET6_ADDRSTRLEN];
++
++	if (!addr_eq(subnet->net, subnet_number(*addr, subnet->netmask))) {
++		strcpy(lowbuf, piaddr(*addr));
++		strcpy(netbuf, piaddr(subnet->net));
++		log_fatal("bad range, address %s not in subnet %s/%d",
++			lowbuf, netbuf, subnet->prefix_len);
++	}
++
++}
++
+ /* address-range6-declaration :== ip-address6 ip-address6 SEMI
+ 			       | ip-address6 SLASH number SEMI
+ 			       | ip-address6 [SLASH number] TEMPORARY SEMI */
+@@ -3808,6 +3821,8 @@ parse_address_range6(struct parse *cfile
+ 		return;
+ 	}
+ 
++	check_addr_in_subnet(group->subnet, &lo);
++
+ 	/* 
+ 	 * See if we we're using range or CIDR notation or TEMPORARY
+ 	 */
+@@ -3875,6 +3890,8 @@ parse_address_range6(struct parse *cfile
+ 			return;
+ 		}
+ 
++		check_addr_in_subnet(group->subnet, &hi);
++
+ 		/*
+ 		 * Convert our range to a set of CIDR networks.
+ 		 */

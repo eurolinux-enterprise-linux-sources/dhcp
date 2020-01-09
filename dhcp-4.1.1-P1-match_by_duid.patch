@@ -1,0 +1,177 @@
+diff -up dhcp-4.1.1-P1/doc/examples/dhcpd-dhcpv6.conf.match_by_duid dhcp-4.1.1-P1/doc/examples/dhcpd-dhcpv6.conf
+--- dhcp-4.1.1-P1/doc/examples/dhcpd-dhcpv6.conf.match_by_duid	2011-06-09 15:18:24.601146519 +0200
++++ dhcp-4.1.1-P1/doc/examples/dhcpd-dhcpv6.conf	2011-06-09 15:19:34.371154847 +0200
+@@ -65,6 +65,14 @@ host myclient {
+ 	##if packet(0,1) = 1 { log(debug,"sol"); }
+ }
+ 
++host otherclient {
++        # This host entry is hopefully matched if the client supplies a DUID-LL
++        # or DUID-LLT containing this MAC address.
++        hardware ethernet 01:00:80:a2:55:67;
++
++        fixed-address6 3ffe:501:ffff:100::4321;
++}
++
+ # The subnet where the server is attached
+ #  (i.e., the server has an address in this subnet)
+ subnet6 3ffe:501:ffff:100::/64 {
+diff -up dhcp-4.1.1-P1/server/confpars.c.match_by_duid dhcp-4.1.1-P1/server/confpars.c
+--- dhcp-4.1.1-P1/server/confpars.c.match_by_duid	2011-06-09 15:17:38.545134942 +0200
++++ dhcp-4.1.1-P1/server/confpars.c	2011-06-09 15:17:38.588133471 +0200
+@@ -561,16 +561,6 @@ int parse_statement (cfile, group, type,
+ 
+ 	      case HARDWARE:
+ 		next_token (&val, (unsigned *)0, cfile);
+-#ifdef DHCPv6
+-		if (local_family == AF_INET6) {
+-			parse_warn(cfile, "You can not use a hardware "
+-			                  "parameter for DHCPv6 hosts. "
+-					  "Use the host-identifier parameter "
+-					  "instead.");
+-			skip_to_semi(cfile);
+-			break;
+-		}
+-#endif /* DHCPv6 */
+ 		memset (&hardware, 0, sizeof hardware);
+ 		if (host_decl && memcmp(&hardware, &(host_decl->interface),
+ 					sizeof(hardware)) != 0) {
+diff -up dhcp-4.1.1-P1/server/dhcpv6.c.match_by_duid dhcp-4.1.1-P1/server/dhcpv6.c
+--- dhcp-4.1.1-P1/server/dhcpv6.c.match_by_duid	2011-06-09 15:17:38.433136479 +0200
++++ dhcp-4.1.1-P1/server/dhcpv6.c	2011-06-09 15:17:38.591136633 +0200
+@@ -140,6 +140,8 @@ static isc_result_t reply_process_send_p
+ static struct iasubopt *prefix_compare(struct reply_state *reply,
+ 				       struct iasubopt *alpha,
+ 				       struct iasubopt *beta);
++static int find_hosts_by_duid_chaddr(struct host_decl **host,
++				     const struct data_string *client_id);
+ 
+ /*
+  * This function returns the time since DUID time start for the
+@@ -1319,15 +1321,21 @@ lease_to_client(struct data_string *repl
+ 	 * Find a host record that matches from the packet, if any, and is
+ 	 * valid for the shared network the client is on.
+ 	 */
+-	if (find_hosts_by_option(&reply.host, packet, packet->options, MDL)) {
++	if (find_hosts_by_uid(&reply.host, client_id->data, client_id->len,
++			      MDL))
+ 		seek_shared_host(&reply.host, reply.shared);
+-	}
+ 
+ 	if ((reply.host == NULL) &&
+-	    find_hosts_by_uid(&reply.host, client_id->data, client_id->len,
+-			      MDL)) {
++	    find_hosts_by_option(&reply.host, packet, packet->options, MDL))
++		seek_shared_host(&reply.host, reply.shared);
++
++	/*
++	 * Check for 'hardware' matches last, as some of the synthesis methods
++	 * are not considered to be as reliable.
++	 */
++	if ((reply.host == NULL) &&
++	    find_hosts_by_duid_chaddr(&reply.host, client_id))
+ 		seek_shared_host(&reply.host, reply.shared);
+-	}
+ 
+ 	/* Process the client supplied IA's onto the reply buffer. */
+ 	reply.ia_count = 0;
+@@ -4730,6 +4738,10 @@ iterate_over_ia_na(struct data_string *r
+ 		if (!find_hosts_by_option(&packet_host, 
+ 					  packet, packet->options, MDL)) {
+ 			packet_host = NULL;
++
++			if (!find_hosts_by_duid_chaddr(&packet_host,
++						       client_id))
++				packet_host = NULL;
+ 		}
+ 	}
+ 
+@@ -5290,6 +5302,10 @@ iterate_over_ia_pd(struct data_string *r
+ 		if (!find_hosts_by_option(&packet_host, 
+ 					  packet, packet->options, MDL)) {
+ 			packet_host = NULL;
++
++			if (!find_hosts_by_duid_chaddr(&packet_host,
++						       client_id))
++				packet_host = NULL;
+ 		}
+ 	}
+ 
+@@ -6076,5 +6092,77 @@ fixed_matches_shared(struct host_decl *h
+ 	return matched;
+ }
+ 
++/*
++ * find_host_by_duid_chaddr() synthesizes a DHCPv4-like 'hardware'
++ * parameter from a DHCPv6 supplied DUID (client-identifier option),
++ * and may seek to use client or relay supplied hardware addresses.
++ */
++static int
++find_hosts_by_duid_chaddr(struct host_decl **host,
++			  const struct data_string *client_id) {
++	static int once_htype;
++	int htype, hlen;
++	const unsigned char *chaddr;
++
++	/*
++	 * The DUID-LL and DUID-LLT must have a 2-byte DUID type and 2-byte
++	 * htype.
++	 */
++	if (client_id->len < 4)
++		return 0;
++
++	/*
++	 * The third and fourth octets of the DUID-LL and DUID-LLT
++	 * is the hardware type, but in 16 bits.
++	 */
++	htype = getUShort(client_id->data + 2);
++	hlen = 0;
++	chaddr = NULL;
++
++	/* The first two octets of the DUID identify the type. */
++	switch(getUShort(client_id->data)) {
++	      case DUID_LLT:
++		if (client_id->len > 8) {
++			hlen = client_id->len - 8;
++			chaddr = client_id->data + 8;
++		}
++		break;
++
++	      case DUID_LL:
++		/*
++		 * Note that client_id->len must be greater than or equal
++		 * to four to get to this point in the function.
++		 */
++		hlen = client_id->len - 4;
++		chaddr = client_id->data + 4;
++		break;
++
++	      default:
++		break;
++	}
++
++	if (hlen == 0)
++		return 0;
++
++	/*
++	 * XXX: DHCPv6 gives a 16-bit field for the htype.  DHCPv4 gives an
++	 * 8-bit field.  To change the semantics of the generic 'hardware'
++	 * structure, we would have to adjust many DHCPv4 sources (from
++	 * interface to DHCPv4 lease code), and we would have to update the
++	 * 'hardware' config directive (probably being reverse compatible and
++	 * providing a new upgrade/replacement primitive).  This is a little
++	 * too much to change for now.  Hopefully we will revisit this before
++	 * hardware types exceeding 8 bits are assigned.
++	 */
++	if ((htype & 0xFF00) && !once_htype) {
++		once_htype = 1;
++		log_error("Attention: At least one client advertises a "
++			  "hardware type of %d, which exceeds the software "
++			  "limitation of 255.", htype);
++	}
++
++	return find_hosts_by_haddr(host, htype, chaddr, hlen, MDL);
++}
++
+ #endif /* DHCPv6 */
+ 

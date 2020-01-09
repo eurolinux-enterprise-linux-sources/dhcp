@@ -1,0 +1,73 @@
+diff -up dhcp-4.1.1-P1/includes/dhcpd.h.ignore-UIDS dhcp-4.1.1-P1/includes/dhcpd.h
+--- dhcp-4.1.1-P1/includes/dhcpd.h.ignore-UIDS	2015-12-03 14:52:00.660340455 +0100
++++ dhcp-4.1.1-P1/includes/dhcpd.h	2015-12-03 15:05:09.880503760 +0100
+@@ -660,6 +660,8 @@ struct lease_state {
+ #define SV_DELAYED_ACK			58
+ #define SV_MAX_ACK_DELAY		59
+ 
++#define SV_IGNORE_CLIENT_UIDS		82
++
+ #if !defined (DEFAULT_PING_TIMEOUT)
+ # define DEFAULT_PING_TIMEOUT 1
+ #endif
+diff -up dhcp-4.1.1-P1/server/dhcp.c.ignore-UIDS dhcp-4.1.1-P1/server/dhcp.c
+--- dhcp-4.1.1-P1/server/dhcp.c.ignore-UIDS	2015-12-03 14:52:00.661340454 +0100
++++ dhcp-4.1.1-P1/server/dhcp.c	2015-12-03 15:04:33.538488030 +0100
+@@ -2303,6 +2303,14 @@ void ack_lease (packet, lease, offer, wh
+ 	/* Update Client Last Transaction Time. */
+ 	lt->cltt = cur_time;
+ 
++	/* See if we want to record the uid for this client */
++	oc = lookup_option(&server_universe, state->options,
++			   SV_IGNORE_CLIENT_UIDS);
++	if ((oc == NULL) ||
++	    !evaluate_boolean_option_cache(&ignorep, packet, lease, NULL,
++					   packet->options, state->options,
++					   &lease->scope, oc, MDL)) {
++
+ 	/* Record the uid, if given... */
+ 	oc = lookup_option (&dhcp_universe, packet -> options,
+ 			    DHO_DHCP_CLIENT_IDENTIFIER);
+@@ -2333,6 +2341,8 @@ void ack_lease (packet, lease, offer, wh
+ 		data_string_forget (&d1, MDL);
+ 	}
+ 
++	}
++
+ 	if (host) {
+ 		host_reference (&lt -> host, host, MDL);
+ 		host_dereference (&host, MDL);
+diff -up dhcp-4.1.1-P1/server/dhcpd.conf.5.ignore-UIDS dhcp-4.1.1-P1/server/dhcpd.conf.5
+--- dhcp-4.1.1-P1/server/dhcpd.conf.5.ignore-UIDS	2015-12-03 14:52:00.661340454 +0100
++++ dhcp-4.1.1-P1/server/dhcpd.conf.5	2015-12-03 15:00:10.894374353 +0100
+@@ -2294,6 +2294,19 @@ is the value for the option that the cli
+ must be a constant value.
+ .RE
+ .PP
++The 
++.I ignore-client-uids
++statement
++.RS 0.25i
++.PP
++.B ignore-client-uids \fIflag\fB;\fR
++.PP
++If the \fIignore-client-uids\fR statement is present and has a value of
++\fItrue\fR or \fIon\fR, the UID for clients will not be recorded.
++If this statement is not present or has a value of \fIfalse\fR or
++\fIoff\fR, then client UIDs will be recorded.  
++.RE
++.PP
+ The
+ .I infinite-is-reserved
+ statement
+diff -up dhcp-4.1.1-P1/server/stables.c.ignore-UIDS dhcp-4.1.1-P1/server/stables.c
+--- dhcp-4.1.1-P1/server/stables.c.ignore-UIDS	2015-12-03 14:52:00.662340454 +0100
++++ dhcp-4.1.1-P1/server/stables.c	2015-12-03 15:03:37.186463640 +0100
+@@ -286,6 +286,7 @@ static struct option server_options[] =
+ 	{ "unknown-67", "X",			&server_universe,  67, 1 },
+ 	{ "unknown-68", "X",			&server_universe,  68, 1 },
+ #endif
++	{ "ignore-client-uids", "f",		&server_universe,  82, 1 },
+ 	{ NULL, NULL, NULL, 0, 0 }
+ };
+ 

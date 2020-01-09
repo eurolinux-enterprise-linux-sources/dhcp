@@ -1,0 +1,11 @@
+diff -up ./common/packet.c.original ./common/packet.c
+--- ./common/packet.c.original	2013-10-07 18:06:55.683720183 +0900
++++ ./common/packet.c	2013-10-07 18:09:58.438402953 +0900
+@@ -311,6 +311,7 @@ decode_udp_ip_header(struct interface_in
+   len = ulen - sizeof(udp);
+ 
+   usum = udp.uh_sum;
++  if (usum == 0xffff) usum = 0;
+   udp.uh_sum = 0;
+ 
+   /* XXX: We have to pass &udp, because we have to zero the checksum

@@ -1,0 +1,53 @@
+diff -up dhcp-4.1.1-P1/client/dhclient.c.next-server dhcp-4.1.1-P1/client/dhclient.c
+--- dhcp-4.1.1-P1/client/dhclient.c.next-server	2013-04-02 11:46:53.598023025 +0200
++++ dhcp-4.1.1-P1/client/dhclient.c	2013-04-02 11:46:53.621023005 +0200
+@@ -1420,7 +1420,7 @@ void state_selecting (cpp)
+ 		client -> state = S_REQUESTING;
+ 
+ 		/* Bind to the address we received. */
+-		bind_lease (client);
++		bind_lease (client, NULL);
+ 		return;
+ 	}
+ 
+@@ -1597,11 +1597,12 @@ void dhcpack (packet)
+ 	if (client -> new -> rebind < cur_time)
+ 		client -> new -> rebind = TIME_MAX;
+ 
+-	bind_lease (client);
++	bind_lease (client, &packet -> raw -> siaddr);
+ }
+ 
+-void bind_lease (client)
++void bind_lease (client, siaddr)
+ 	struct client_state *client;
++	struct in_addr *siaddr;
+ {
+ 	struct timeval tv;
+ 
+@@ -1622,6 +1623,13 @@ void bind_lease (client)
+ 	if (client -> alias)
+ 		script_write_params (client, "alias_", client -> alias);
+ 
++	if (siaddr) {
++		char buf[INET_ADDRSTRLEN];
++
++		if (inet_ntop (AF_INET, (void *) siaddr, buf, sizeof (buf)))
++			client_envadd (client, "new_", "next_server", "%s", buf);
++	}
++
+ 	/* If the BOUND/RENEW code detects another machine using the
+ 	   offered address, it exits nonzero.  We need to send a
+ 	   DHCPDECLINE and toss the lease. */
+diff -up dhcp-4.1.1-P1/includes/dhcpd.h.next-server dhcp-4.1.1-P1/includes/dhcpd.h
+--- dhcp-4.1.1-P1/includes/dhcpd.h.next-server	2013-04-02 11:46:53.000000000 +0200
++++ dhcp-4.1.1-P1/includes/dhcpd.h	2013-04-02 11:54:32.535731295 +0200
+@@ -2555,7 +2555,7 @@ void state_bound PROTO ((void *));
+ void state_stop PROTO ((void *));
+ void state_panic PROTO ((void *));
+ 
+-void bind_lease PROTO ((struct client_state *));
++void bind_lease PROTO ((struct client_state *, struct in_addr *));
+ 
+ void make_client_options PROTO ((struct client_state *,
+ 				 struct client_lease *, u_int8_t *,

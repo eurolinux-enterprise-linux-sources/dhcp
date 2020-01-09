@@ -1,0 +1,13 @@
+diff -up dhcp-4.1.1-P1/common/parse.c.dupl-key dhcp-4.1.1-P1/common/parse.c
+--- dhcp-4.1.1-P1/common/parse.c.dupl-key	2013-07-02 17:17:06.923000025 +0200
++++ dhcp-4.1.1-P1/common/parse.c	2013-07-02 17:17:06.948000025 +0200
+@@ -2839,6 +2839,9 @@ int parse_zone (struct dns_zone *zone, s
+ 			    }
+ 			    val = key_name;
+ 		    }
++		    if (zone->key)
++			log_fatal("Multiple key definition for zone %s.",
++				  zone->name);
+ 		    if (omapi_auth_key_lookup_name (&zone -> key, val) !=
+ 			ISC_R_SUCCESS)
+ 			    parse_warn (cfile, "unknown key %s", val);

@@ -1,0 +1,295 @@
+diff -up dhcp-4.1.1-P1/common/discover.c.ipv6-bind-to-interface dhcp-4.1.1-P1/common/discover.c
+--- dhcp-4.1.1-P1/common/discover.c.ipv6-bind-to-interface	2014-10-09 15:28:46.971504363 +0200
++++ dhcp-4.1.1-P1/common/discover.c	2014-10-09 15:30:21.305102068 +0200
+@@ -57,10 +57,6 @@ struct in_addr limited_broadcast;
+ int local_family = AF_INET;
+ struct in_addr local_address;
+ 
+-#ifdef DHCPv6
+-struct in6_addr local_address6;
+-#endif /* DHCPv6 */
+-
+ void (*bootp_packet_handler) PROTO ((struct interface_info *,
+ 				     struct dhcp_packet *, unsigned,
+ 				     unsigned int,
+@@ -860,7 +856,7 @@ discover_interfaces(int state) {
+ 			    (state == DISCOVER_RELAY)) {
+ 				if_register6(tmp, 1);
+ 			} else {
+-				if_register6(tmp, 0);
++				if_register_linklocal6(tmp);
+ 			}
+ #endif /* DHCPv6 */
+ 		}
+@@ -908,13 +904,14 @@ discover_interfaces(int state) {
+ 				   tmp -> name, isc_result_totext (status));
+ 
+ #if defined(DHCPv6)
+-		/* Only register the first interface for V6, since they all
+-		 * use the same socket.  XXX: This has some messy side
+-		 * effects if we start dynamically adding and removing
+-		 * interfaces, but we're well beyond that point in terms of
+-		 * mess.
++		/* Only register the first interface for V6, since
++		 * servers and relays all use the same socket.
++		 * XXX: This has some messy side effects if we start
++		 * dynamically adding and removing interfaces, but
++		 * we're well beyond that point in terms of mess.
+ 		 */
+-		if (local_family == AF_INET6)
++		if (((state == DISCOVER_SERVER) || (state == DISCOVER_RELAY)) &&
++		    (local_family == AF_INET6))
+ 			break;
+ #endif
+ 	}
+diff -up dhcp-4.1.1-P1/common/socket.c.ipv6-bind-to-interface dhcp-4.1.1-P1/common/socket.c
+--- dhcp-4.1.1-P1/common/socket.c.ipv6-bind-to-interface	2014-10-09 15:28:46.909505198 +0200
++++ dhcp-4.1.1-P1/common/socket.c	2014-10-09 15:35:01.079839616 +0200
+@@ -59,6 +59,7 @@
+  * XXX: this is gross.  we need to go back and overhaul the API for socket
+  * handling.
+  */
++static int no_global_v6_socket = 0;
+ static unsigned int global_v6_socket_references = 0;
+ static int global_v6_socket = -1;
+ 
+@@ -109,7 +110,7 @@ void if_reinitialize_receive (info)
+ /* Generic interface registration routine... */
+ int
+ if_register_socket(struct interface_info *info, int family,
+-		   int *do_multicast)
++		   int *do_multicast, struct in6_addr *linklocal6)
+ {
+ 	struct sockaddr_storage name;
+ 	int name_len;
+@@ -138,10 +139,12 @@ if_register_socket(struct interface_info
+ 		struct sockaddr_in6 *addr = (struct sockaddr_in6 *)&name; 
+ 		addr->sin6_family = AF_INET6;
+ 		addr->sin6_port = local_port;
+-		/* XXX: What will happen to multicasts if this is nonzero? */
+-		memcpy(&addr->sin6_addr,
+-		       &local_address6, 
+-		       sizeof(addr->sin6_addr));
++		if (linklocal6) {
++			memcpy(&addr->sin6_addr,
++			       linklocal6,
++			       sizeof(addr->sin6_addr));
++			addr->sin6_scope_id =  if_nametoindex(info->name);
++		}
+ #ifdef HAVE_SA_LEN
+ 		addr->sin6_len = sizeof(*addr);
+ #endif
+@@ -196,7 +199,7 @@ if_register_socket(struct interface_info
+ 	 * daemons can bind to their own sockets and get data for their
+ 	 * respective interfaces.  This does not (and should not) affect
+ 	 * DHCPv4 sockets; we can't yet support BSD sockets well, much
+-	 * less multiple sockets.
++	 * less multiple sockets. Make sense only with multicast.
+ 	 */
+ 	if (local_family == AF_INET6) {
+ 		flag = 1;
+@@ -287,7 +290,7 @@ void if_register_send (info)
+ 	struct interface_info *info;
+ {
+ #ifndef USE_SOCKET_RECEIVE
+-	info -> wfdesc = if_register_socket (info, AF_INET, 0);
++	info -> wfdesc = if_register_socket (info, AF_INET, 0, NULL);
+ #if defined (USE_SOCKET_FALLBACK)
+ 	/* Fallback only registers for send, but may need to receive as
+ 	   well. */
+@@ -329,7 +332,7 @@ void if_register_receive (info)
+ {
+ 	/* If we're using the socket API for sending and receiving,
+ 	   we don't need to register this interface twice. */
+-	info -> rfdesc = if_register_socket (info, AF_INET, 0);
++	info -> rfdesc = if_register_socket (info, AF_INET, 0, NULL);
+ 	if (!quiet_interface_discovery)
+ 		log_info ("Listening on Socket/%s%s%s",
+ 		      info -> name,
+@@ -401,9 +404,13 @@ if_register6(struct interface_info *info
+ 	/* Bounce do_multicast to a stack variable because we may change it. */
+ 	int req_multi = do_multicast;
+ 
++	if (no_global_v6_socket) {
++		log_fatal("Impossible condition at %s:%d", MDL);
++	}
++
+ 	if (global_v6_socket_references == 0) {
+ 		global_v6_socket = if_register_socket(info, AF_INET6,
+-						      &req_multi);
++						      &req_multi, NULL);
+ 		if (global_v6_socket < 0) {
+ 			/*
+ 			 * if_register_socket() fatally logs if it fails to
+@@ -439,12 +446,73 @@ if_register6(struct interface_info *info
+ 	}
+ }
+ 
++/*
++ * Register an IPv6 socket bound to the link-local address of
++ * the argument interface (used by clients on a multiple interface box,
++ * vs. a server or a relay using the global IPv6 socket and running
++ * *only* in a single instance).
++ */
++void
++if_register_linklocal6(struct interface_info *info) {
++	int sock;
++	int count;
++	struct in6_addr *addr6 = NULL;
++	int req_multi = 0;
++
++	if (global_v6_socket >= 0) {
++		log_fatal("Impossible condition at %s:%d", MDL);
++	}
++		
++	no_global_v6_socket = 1;
++
++	/* get the (?) link-local address */
++	for (count = 0; count < info->v6address_count; count++) {
++		addr6 = &info->v6addresses[count];
++		if (IN6_IS_ADDR_LINKLOCAL(addr6))
++			break;
++	}
++
++	if (!addr6) {
++		log_fatal("no link-local IPv6 address for %s", info->name);
++	}
++
++	sock = if_register_socket(info, AF_INET6, &req_multi, addr6);
++
++	if (sock < 0) {
++		log_fatal("if_register_socket for %s fails", info->name);
++	}
++
++	info->rfdesc = sock;
++	info->wfdesc = sock;
++
++	get_hw_addr(info);
++
++	if (!quiet_interface_discovery) {
++		if (info->shared_network != NULL) {
++			log_info("Listening on Socket/%d/%s/%s",
++				 global_v6_socket, info->name, 
++				 info->shared_network->name);
++			log_info("Sending on   Socket/%d/%s/%s",
++				 global_v6_socket, info->name,
++				 info->shared_network->name);
++		} else {
++			log_info("Listening on Socket/%s", info->name);
++			log_info("Sending on   Socket/%s", info->name);
++		}
++	}
++}
++
+ void 
+ if_deregister6(struct interface_info *info) {
+-	/* Dereference the global v6 socket. */
+-	if ((info->rfdesc == global_v6_socket) &&
+-	    (info->wfdesc == global_v6_socket) &&
+-	    (global_v6_socket_references > 0)) {
++	/* client case */
++	if (no_global_v6_socket) {
++		close(info->rfdesc);
++		info->rfdesc = -1;
++		info->wfdesc = -1;
++	} else if ((info->rfdesc == global_v6_socket) &&
++		   (info->wfdesc == global_v6_socket) &&
++		   (global_v6_socket_references > 0)) {
++		/* Dereference the global v6 socket. */
+ 		global_v6_socket_references--;
+ 		info->rfdesc = -1;
+ 		info->wfdesc = -1;
+@@ -464,7 +532,8 @@ if_deregister6(struct interface_info *in
+ 		}
+ 	}
+ 
+-	if (global_v6_socket_references == 0) {
++	if (!no_global_v6_socket &&
++	    (global_v6_socket_references == 0)) {
+ 		close(global_v6_socket);
+ 		global_v6_socket = -1;
+ 
+@@ -583,9 +652,11 @@ ssize_t send_packet6(struct interface_in
+ 		     struct sockaddr_in6 *to) {
+ 	struct msghdr m;
+ 	struct iovec v;
++	struct sockaddr_in6 dst;
+ 	int result;
+ 	struct in6_pktinfo *pktinfo;
+ 	struct cmsghdr *cmsg;
++	unsigned int ifindex;
+ 	union {
+ 		struct cmsghdr cmsg_sizer;
+ 		u_int8_t pktinfo_sizer[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+@@ -598,9 +669,14 @@ ssize_t send_packet6(struct interface_in
+ 
+ 	/*
+ 	 * Set the target address we're sending to.
++	 * Enforce the scope ID for bogus BSDs.
+ 	 */
+-	m.msg_name = to;
+-	m.msg_namelen = sizeof(*to);
++	memcpy(&dst, to, sizeof(dst));
++	m.msg_name = &dst;
++	m.msg_namelen = sizeof(dst);
++	ifindex = if_nametoindex(interface->name);
++	if (no_global_v6_socket)
++		dst.sin6_scope_id = ifindex;
+ 
+ 	/*
+ 	 * Set the data buffer we're sending. (Using this wacky 
+@@ -628,7 +704,7 @@ ssize_t send_packet6(struct interface_in
+ 	cmsg->cmsg_len = CMSG_LEN(sizeof(*pktinfo));
+ 	pktinfo = (struct in6_pktinfo *)CMSG_DATA(cmsg);
+ 	memset(pktinfo, 0, sizeof(*pktinfo));
+-	pktinfo->ipi6_ifindex = if_nametoindex(interface->name);
++	pktinfo->ipi6_ifindex = ifindex;
+ 	m.msg_controllen = cmsg->cmsg_len;
+ 
+ 	result = sendmsg(interface->wfdesc, &m, 0);
+@@ -822,7 +898,7 @@ void maybe_setup_fallback ()
+ 	isc_result_t status;
+ 	struct interface_info *fbi = (struct interface_info *)0;
+ 	if (setup_fallback (&fbi, MDL)) {
+-		fbi -> wfdesc = if_register_socket (fbi, AF_INET, 0);
++		fbi -> wfdesc = if_register_socket (fbi, AF_INET, 0, NULL);
+ 		fbi -> rfdesc = fbi -> wfdesc;
+ 		log_info ("Sending on   Socket/%s%s%s",
+ 		      fbi -> name,
+diff -up dhcp-4.1.1-P1/includes/dhcpd.h.ipv6-bind-to-interface dhcp-4.1.1-P1/includes/dhcpd.h
+--- dhcp-4.1.1-P1/includes/dhcpd.h.ipv6-bind-to-interface	2014-10-09 15:28:47.000503972 +0200
++++ dhcp-4.1.1-P1/includes/dhcpd.h	2014-10-09 15:35:47.857126950 +0200
+@@ -2209,7 +2209,7 @@ void get_hw_addr(struct interface_info *
+ /* socket.c */
+ #if defined (USE_SOCKET_SEND) || defined (USE_SOCKET_RECEIVE) \
+ 	|| defined (USE_SOCKET_FALLBACK)
+-int if_register_socket(struct interface_info *, int, int *);
++int if_register_socket(struct interface_info *, int, int *, struct in6_addr *);
+ #endif
+ 
+ #if defined (USE_SOCKET_FALLBACK) && !defined (USE_SOCKET_SEND)
+@@ -2220,7 +2220,7 @@ ssize_t send_fallback PROTO ((struct int
+ 			      struct in_addr,
+ 			      struct sockaddr_in *, struct hardware *));
+ ssize_t send_fallback6(struct interface_info *, struct packet *, 
+-		       struct dhcp_packet *, size_t, struct in6_addr,
++		       struct dhcp_packet *, size_t, struct in6_addr *,
+ 		       struct sockaddr_in6 *, struct hardware *);
+ #endif
+ 
+@@ -2256,6 +2256,7 @@ void maybe_setup_fallback PROTO ((void))
+ #endif
+ 
+ void if_register6(struct interface_info *info, int do_multicast);
++void if_register_linklocal6(struct interface_info *info);
+ ssize_t receive_packet6(struct interface_info *interface,
+ 			unsigned char *buf, size_t len,
+ 			struct sockaddr_in6 *from, struct in6_addr *to_addr,
+@@ -2402,7 +2403,6 @@ void interface_trace_setup (void);
+ extern struct in_addr limited_broadcast;
+ extern int local_family;
+ extern struct in_addr local_address;
+-extern struct in6_addr local_address6;
+ 
+ extern u_int16_t local_port;
+ extern u_int16_t remote_port;
