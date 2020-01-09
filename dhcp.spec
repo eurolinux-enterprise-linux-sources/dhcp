@@ -15,7 +15,7 @@
 Summary:  Dynamic host configuration protocol software
 Name:     dhcp
 Version:  4.1.1
-Release:  53.%{patchver}%{?dist}.3
+Release:  53.%{patchver}%{?dist}.4
 # NEVER CHANGE THE EPOCH on this package.  The previous maintainer (prior to
 # dcantrell maintaining the package) made incorrect use of the epoch and
 # that's why it is at 12 now.  It should have never been used, but it was.
@@ -772,6 +772,9 @@ fi
 %attr(0644,root,root) %{_mandir}/man3/omapi.3.gz
 
 %changelog
+* Tue Apr 24 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-53.P1%{?dist}.4
+- Resolves: #1570897 - Fix comamnd execution in NM script (CVE-2018-1111)
+
 * Wed Feb 28 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-53.P1.3
 - Resolves: #1550085 - CVE-2018-5733 Avoid reference overflow
 
