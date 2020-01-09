@@ -7,7 +7,7 @@
 # Patch version
 %global patchver P1
 
-%global VERSION %{version}-%{patchver}
+%global LVERSION %{version}-%{patchver}
 
 # LDAP patch version
 %global ldappatchver %{version}-2
@@ -15,7 +15,7 @@
 Summary:  Dynamic host configuration protocol software
 Name:     dhcp
 Version:  4.1.1
-Release:  61.%{patchver}%{?dist}
+Release:  63.%{patchver}%{?dist}
 # NEVER CHANGE THE EPOCH on this package.  The previous maintainer (prior to
 # dcantrell maintaining the package) made incorrect use of the epoch and
 # that's why it is at 12 now.  It should have never been used, but it was.
@@ -24,7 +24,7 @@ Epoch:    12
 License:  ISC
 Group:    System Environment/Daemons
 URL:      http://isc.org/products/DHCP/
-Source0:  ftp://ftp.isc.org/isc/%{name}/%{name}-%{VERSION}.tar.gz
+Source0:  ftp://ftp.isc.org/isc/%{name}/%{name}-%{LVERSION}.tar.gz
 Source1:  http://cloud.github.com/downloads/dcantrell/ldap-for-dhcp/ldap-for-dhcp-%{ldappatchver}.tar.gz
 Source2:  dhcpd.init
 Source3:  dhcrelay.init
@@ -103,6 +103,7 @@ Patch66:  %{name}-4.1.1-P1-client-request-release-bind-iface.patch
 Patch67:  %{name}-4.1.1-P1-failover-potential-conflict.patch
 Patch68:  %{name}-4.1.1-options_overflow.patch
 Patch69:  %{name}-4.1.1-reference_overflow.patch
+Patch70:  %{name}-replay_file_limit.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: autoconf
@@ -188,8 +189,8 @@ Header files and API documentation for using the ISC DHCP libraries.  The
 libdhcpctl and libomapi static libraries are also included in this package.
 
 %prep
-%setup -q -n dhcp-%{VERSION}
-%setup -T -D -a 1 -n dhcp-%{VERSION}
+%setup -q -n dhcp-%{LVERSION}
+%setup -T -D -a 1 -n dhcp-%{LVERSION}
 
 # Add in LDAP support
 %{__patch} -p1 < ldap-for-dhcp-%{ldappatchver}/%{name}-%{version}-ldap.patch
@@ -435,6 +436,9 @@ libdhcpctl and libomapi static libraries are also included in this package.
 # CVE-2018-5732
 %patch69 -p1 -b .reference_overflow
 
+# rhbz#1607639
+%patch70 -p1 -b .noreplay
+
 # Copy in documentation and example scripts for LDAP patch to dhcpd
 %{__install} -p -m 0755 ldap-for-dhcp-%{ldappatchver}/dhcpd-conf-to-ldap contrib/
 
@@ -474,7 +478,7 @@ popd
 %{__perl_requires} \
 | %{__grep} -v 'perl('
 EOF
-%global __perl_requires %{_builddir}/%{name}-%{VERSION}/%{name}-req
+%global __perl_requires %{_builddir}/%{name}-%{LVERSION}/%{name}-req
 %{__chmod} +x %{__perl_requires}
 
 # Replace @PRODUCTNAME@
@@ -504,7 +508,11 @@ autoheader
 automake --foreign --add-missing --copy
 
 %build
+%ifarch %{ix86} ppc
+CFLAGS="%{optflags} -fno-strict-aliasing -D_GNU_SOURCE -D_LARGEFILE_SOURCE  -D_FILE_OFFSET_BITS=64  " \
+%else
 CFLAGS="%{optflags} -fno-strict-aliasing -D_GNU_SOURCE" \
+%endif
 %configure \
     --enable-dhcpv6 \
     --with-srv-lease-file=%{_localstatedir}/lib/dhcpd/dhcpd.leases \
@@ -772,6 +780,12 @@ fi
 %attr(0644,root,root) %{_mandir}/man3/omapi.3.gz
 
 %changelog
+* Tue Sep 11 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-63.P1%{?dist}
+- Related: #1607639 - Fix open large files in 32bits mode
+
+* Fri Sep  7 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-62.P1%{?dist}
+- Resolves: #1607639 - Do not try to load leases if not replaying
+
 * Wed Jun 27 2018 Pavel Zhukov <pzhukov@redhat.com> - 12:4.1.1-61.P1%{?dist}
 - Resolves: #1595412 - Replace route in case of conflict
 
