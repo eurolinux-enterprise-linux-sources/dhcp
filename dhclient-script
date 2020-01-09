@@ -278,7 +278,7 @@ is_router_reachable() {
     if [ ! "${routersubnet}" = "${mysubnet}" ]; then
         unreachable=1
         if arping -f -q -I ${interface} -w2 ${router}; then
-            ip route add ${router}/32 dev ${interface}
+            ip route replace ${router}/32 dev ${interface}
             if [ $? -eq 0 ]; then
                 unreachable=0
             else
