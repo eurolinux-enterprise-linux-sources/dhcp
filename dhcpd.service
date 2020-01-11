@@ -1,10 +1,12 @@
 [Unit]
 Description=DHCPv4 Server Daemon
 Documentation=man:dhcpd(8) man:dhcpd.conf(5)
-After=network.target
+Wants=network-online.target
+After=network-online.target
 After=time-sync.target
 
 [Service]
+Type=notify
 ExecStart=/usr/sbin/dhcpd -f -cf /etc/dhcp/dhcpd.conf -user dhcpd -group dhcpd --no-pid
 
 [Install]

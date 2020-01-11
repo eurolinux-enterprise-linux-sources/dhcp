@@ -1,9 +1,11 @@
 [Unit]
 Description=DHCP Relay Agent Daemon
 Documentation=man:dhcrelay(8)
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
+Type=notify
 ExecStart=/usr/sbin/dhcrelay -d --no-pid
 
 [Install]
